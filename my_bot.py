@@ -205,6 +205,16 @@ def clear_pending_updates():
 
 if __name__ == "__main__":
     print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
-    clear_pending_updates() 
+    
+    # [핵심 수정] 봇이 켜지자마자 텔레그램 서버에 있는 최신 메시지 번호만 가져와서 
+    # '이 번호 이전 건 다 읽은 걸로 칠게'라고 세팅합니다.
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    try:
+        res = requests.get(url, timeout=10).json()
+        if res.get("result"):
+            last_update_id = res["result"][-1]["update_id"]
+            print(f"✅ 초기화 완료: 마지막 메시지 번호({last_update_id})부터 시작합니다.")
+    except: pass
+    
     keep_alive() 
     background_loop()
