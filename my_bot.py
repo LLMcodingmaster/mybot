@@ -190,7 +190,21 @@ def background_loop():
         process_telegram_commands()
         time.sleep(10)
 
+def clear_pending_updates():
+    print("🤖 밀린 메시지 청소 중...")
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            result = response.json().get("result", [])
+            if result:
+                global last_update_id
+                last_update_id = result[-1]["update_id"]
+                print(f"✅ 밀린 메시지 {len(result)}개 삭제 완료!")
+    except: pass
+
 if __name__ == "__main__":
     print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
+    clear_pending_updates() 
     keep_alive() 
     background_loop()
