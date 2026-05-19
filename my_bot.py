@@ -21,7 +21,6 @@ KST = datetime.timezone(datetime.timedelta(hours=9))
 
 last_update_id = None
 schedule_list = []
-schedule_id_counter = 1
 
 # =========================================================================
 app = Flask(__name__)
@@ -31,7 +30,6 @@ def home():
     return "🤖 비서봇이 Render 서버에서 24시간 정상 작동 중입니다!"
 
 def run_web_server():
-    # 서버가 빈 포트를 알아서 찾아서 열도록 수정! (에러 방지)
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
@@ -103,8 +101,20 @@ def send_morning_briefing():
     briefing_msg = f"🌅 좋은 아침입니다! ({now})\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 주요 뉴스]{get_news()}"
     send_telegram_message(briefing_msg)
 
+# =========================================================================
+# [핵심 추가] 목록을 깨끗하게 청소하고, 시간순으로 줄 세우고, 번호를 1번부터 다시 매기는 함수
+def sort_and_reindex_schedules():
+    global schedule_list
+    # 1. 완료된(done=True) 일정 아예 리스트에서 삭제
+    schedule_list = [s for s in schedule_list if not s['done']]
+    # 2. 알람 시간(alert_dt) 기준으로 가까운 시간부터 오름차순 정렬
+    schedule_list.sort(key=lambda x: x['alert_dt'])
+    # 3. 번호를 1번부터 깔끔하게 다시 부여
+    for i, item in enumerate(schedule_list):
+        item['id'] = i + 1
+# =========================================================================
+
 def parse_and_add_schedule(command_text):
-    global schedule_id_counter
     parts = command_text.split()
     if len(parts) < 4:
         send_telegram_message("⚠️ 형식: /일정 [제목] [월일4자리] [시간4자리] [몇분전(선택)]")
@@ -130,16 +140,21 @@ def parse_and_add_schedule(command_text):
         digits = re.sub(r'[^0-9]', '', parts[4])
         if digits: lm = int(digits) * (60 if "시간" in parts[4] else 1)
 
-    alert_time = (dt - datetime.timedelta(minutes=lm)).strftime("%Y-%m-%d %H:%M")
+    alert_dt = dt - datetime.timedelta(minutes=lm)
     full_time_str = dt.strftime("%Y-%m-%d %H:%M")
     
+    # 0번(임시)으로 먼저 넣고
     schedule_list.append({
-        "id": schedule_id_counter, "title": title, "time": full_time_str,
-        "alert_time": alert_time, "lead_minutes": lm, "done": False
+        "id": 0, "title": title, "time": full_time_str,
+        "alert_dt": alert_dt, "lead_minutes": lm, "done": False
     })
     
-    send_telegram_message(f"✅ 일정 등록!\n번호: [{schedule_id_counter}]\n📌 {title}\n⏰ {full_time_str}\n🔔 {('정각' if lm == 0 else f'{lm}분 전')} 알림")
-    schedule_id_counter += 1
+    # 정렬 함수 돌리면 알아서 자기 자리(시간순) 찾아가고 올바른 번호가 부여됨
+    sort_and_reindex_schedules()
+    
+    # 부여된 새 번호 찾아서 메시지 전송
+    new_id = next(s['id'] for s in schedule_list if s['title'] == title and s['alert_dt'] == alert_dt)
+    send_telegram_message(f"✅ 일정 등록!\n번호: [{new_id}]\n📌 {title}\n⏰ {full_time_str}\n🔔 {('정각' if lm == 0 else f'{lm}분 전')} 알림")
 
 def delete_schedule(command_text):
     parts = command_text.split()
@@ -149,9 +164,10 @@ def delete_schedule(command_text):
     
     target_id = int(parts[1])
     for item in schedule_list:
-        if item['id'] == target_id and not item['done']:
+        if item['id'] == target_id:
             item['done'] = True
             send_telegram_message(f"🗑️ '{item['title']}' 삭제 완료.")
+            sort_and_reindex_schedules() # 삭제 후 다시 번호 1번부터 예쁘게 정렬
             return
     send_telegram_message(f"⚠️ [{target_id}]번 일정을 찾을 수 없습니다.")
 
@@ -173,41 +189,33 @@ def process_telegram_commands():
                     if text.startswith("/일정"): parse_and_add_schedule(text)
                     elif text.startswith("/삭제"): delete_schedule(text)
                     elif text == "/목록":
-                        active = [s for s in schedule_list if not s['done']]
-                        if not active: send_telegram_message("대기 중인 일정이 없습니다.")
-                        else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in active]))
+                        sort_and_reindex_schedules() # 보여주기 직전에 한 번 더 깔끔하게 정리
+                        if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
+                        else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
     except: pass
 
 def background_loop():
-    schedule.every().day.at("23:00").do(send_morning_briefing) # Render(UTC) 23:00 = 한국 08:00
+    schedule.every().day.at("23:00").do(send_morning_briefing)
     while True:
         schedule.run_pending()
-        now_str = datetime.datetime.now(KST).strftime("%Y-%m-%d %H:%M")
-        for item in schedule_list:
-            if not item['done'] and item['alert_time'] == now_str:
-                send_telegram_message(f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!")
-                item['done'] = True
         process_telegram_commands()
+        
+        now = datetime.datetime.now(KST)
+        for item in schedule_list:
+            if not item['done'] and now >= item['alert_dt']:
+                msg = f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!"
+                send_telegram_message(msg)
+                item['done'] = True
+                
+        # 알림이 울려서 완료(done)된 일정이 하나라도 생겼다면, 목록 청소 및 번호 재정렬
+        if any(item['done'] for item in schedule_list):
+            sort_and_reindex_schedules()
+            
         time.sleep(10)
-
-def clear_pending_updates():
-    print("🤖 밀린 메시지 청소 중...")
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            result = response.json().get("result", [])
-            if result:
-                global last_update_id
-                last_update_id = result[-1]["update_id"]
-                print(f"✅ 밀린 메시지 {len(result)}개 삭제 완료!")
-    except: pass
 
 if __name__ == "__main__":
     print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
     
-    # [핵심 수정] 봇이 켜지자마자 텔레그램 서버에 있는 최신 메시지 번호만 가져와서 
-    # '이 번호 이전 건 다 읽은 걸로 칠게'라고 세팅합니다.
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
     try:
         res = requests.get(url, timeout=10).json()
