@@ -229,3 +229,69 @@ def delete_schedule(command_text):
     target_id = int(parts[1])
     for item in schedule_list:
         if item['id'] == target_id:
+            item['done'] = True
+            send_telegram_message(f"🗑️ '{item['title']}' 삭제 완료.")
+            sort_and_reindex_schedules()
+            return
+    send_telegram_message(f"⚠️ [{target_id}]번 일정을 찾을 수 없습니다.")
+
+def process_telegram_commands():
+    global last_update_id
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    params = {"timeout": 10}
+    if last_update_id: params["offset"] = last_update_id + 1
+        
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        if response.status_code == 200:
+            for result in response.json().get("result", []):
+                last_update_id = result["update_id"]
+                message = result.get("message", {})
+                text, chat_id_from_msg = message.get("text", ""), str(message.get("chat", {}).get("id", ""))
+                
+                if chat_id_from_msg == CHAT_ID and text:
+                    if text.startswith("/일정"): parse_and_add_schedule(text)
+                    elif text.startswith("/삭제"): delete_schedule(text)
+                    elif text.startswith("/수정"): modify_schedule(text)
+                    # =============== [여기 추가됨!] ===============
+                    elif text == "/브리핑":
+                        send_telegram_message("⏳ AI가 오늘의 뉴스와 정보를 분석하고 있습니다. 잠시만 기다려주세요... (약 10~20초 소요)")
+                        send_morning_briefing()
+                    # ==============================================
+                    elif text == "/목록":
+                        sort_and_reindex_schedules()
+                        if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
+                        else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
+    except: pass
+
+def background_loop():
+    schedule.every().day.at("23:00").do(send_morning_briefing)
+    while True:
+        schedule.run_pending()
+        process_telegram_commands()
+        
+        now = datetime.datetime.now(KST)
+        for item in schedule_list:
+            if not item['done'] and now >= item['alert_dt']:
+                msg = f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!"
+                send_telegram_message(msg)
+                item['done'] = True
+                
+        if any(item['done'] for item in schedule_list):
+            sort_and_reindex_schedules()
+            
+        time.sleep(10)
+
+if __name__ == "__main__":
+    print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
+    
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    try:
+        res = requests.get(url, timeout=10).json()
+        if res.get("result"):
+            last_update_id = res["result"][-1]["update_id"]
+            print(f"✅ 초기화 완료: 마지막 메시지 번호({last_update_id})부터 시작합니다.")
+    except: pass
+    
+    keep_alive() 
+    background_loop()
