@@ -14,6 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
+# [보안 패치 완료] 렌더(Render) 금고에서 API 키를 안전하게 꺼내옵니다.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # =========================================================================
 
@@ -86,7 +87,6 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
-# [수정됨] 단순 헤드라인이 아닌 AI를 활용한 뉴스 심층 분석!
 def get_news_with_ai():
     urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
     raw_news = ""
@@ -97,11 +97,11 @@ def get_news_with_ai():
                 raw_news += f"[{cat}] {e.title} (링크: {e.link})\n"
         except: pass
 
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "여기에_발급받은_키를_넣으세요":
-        return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 GEMINI_API_KEY를 코드에 입력해주세요.)"
+    # 환경 변수가 없거나 비어있으면 경고 문구 출력
+    if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == "":
+        return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
 
     try:
-        # 제미나이 API에 뉴스를 던져주고 분석 요청
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = f"다음은 오늘의 주요 뉴스 헤드라인과 링크입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 요약하고, 각 뉴스의 출처 링크도 본문 옆이나 끝에 꼭 달아주세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -111,11 +111,9 @@ def get_news_with_ai():
     except Exception as e:
         return raw_news + "\n(AI 뉴스 분석 중 오류가 발생했습니다.)"
 
-# [추가됨] 장학금/공모전 정보 스크래핑
 def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
     try:
-        # 최근 7일 내의 대학생 관련 장학금 및 공모전 뉴스를 검색
         url = "https://news.google.com/rss/search?q=%EB%8C%80%ED%95%99%EC%83%9D+%EC%9E%A5%ED%95%99%EA%B8%88+OR+%EA%B3%B5%EB%AA%A8%EC%A0%84+when:7d&hl=ko&gl=KR&ceid=KR:ko"
         entries = feedparser.parse(url).entries[:3]
         for e in entries:
@@ -126,7 +124,6 @@ def get_scholarship_info():
 
 def send_morning_briefing():
     now = datetime.datetime.now(KST).strftime("%Y년 %m월 %d일")
-    # 영양제 알람, 날씨, 학식, AI뉴스, 장학금 순서로 조립
     briefing_msg = f"🌅 좋은 아침입니다! ({now})\n💊 잊지 말고 영양제를 챙겨 드세요!\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 AI 딥다이브 브리핑]\n{get_news_with_ai()}{get_scholarship_info()}"
     send_telegram_message(briefing_msg)
 
@@ -232,64 +229,3 @@ def delete_schedule(command_text):
     target_id = int(parts[1])
     for item in schedule_list:
         if item['id'] == target_id:
-            item['done'] = True
-            send_telegram_message(f"🗑️ '{item['title']}' 삭제 완료.")
-            sort_and_reindex_schedules()
-            return
-    send_telegram_message(f"⚠️ [{target_id}]번 일정을 찾을 수 없습니다.")
-
-def process_telegram_commands():
-    global last_update_id
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    params = {"timeout": 10}
-    if last_update_id: params["offset"] = last_update_id + 1
-        
-    try:
-        response = requests.get(url, params=params, timeout=15)
-        if response.status_code == 200:
-            for result in response.json().get("result", []):
-                last_update_id = result["update_id"]
-                message = result.get("message", {})
-                text, chat_id_from_msg = message.get("text", ""), str(message.get("chat", {}).get("id", ""))
-                
-                if chat_id_from_msg == CHAT_ID and text:
-                    if text.startswith("/일정"): parse_and_add_schedule(text)
-                    elif text.startswith("/삭제"): delete_schedule(text)
-                    elif text.startswith("/수정"): modify_schedule(text)
-                    elif text == "/목록":
-                        sort_and_reindex_schedules()
-                        if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
-                        else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
-    except: pass
-
-def background_loop():
-    schedule.every().day.at("23:00").do(send_morning_briefing)
-    while True:
-        schedule.run_pending()
-        process_telegram_commands()
-        
-        now = datetime.datetime.now(KST)
-        for item in schedule_list:
-            if not item['done'] and now >= item['alert_dt']:
-                msg = f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!"
-                send_telegram_message(msg)
-                item['done'] = True
-                
-        if any(item['done'] for item in schedule_list):
-            sort_and_reindex_schedules()
-            
-        time.sleep(10)
-
-if __name__ == "__main__":
-    print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    try:
-        res = requests.get(url, timeout=10).json()
-        if res.get("result"):
-            last_update_id = res["result"][-1]["update_id"]
-            print(f"✅ 초기화 완료: 마지막 메시지 번호({last_update_id})부터 시작합니다.")
-    except: pass
-    
-    keep_alive() 
-    background_loop()
