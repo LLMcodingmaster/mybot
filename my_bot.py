@@ -14,6 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
+GEMINI_API_KEY = "AIzaSyDzlW-z2Vwna1-XRAfkyBmfbGuPvCLtjHs"  # <-- 구글 AI Studio에서 발급받은 키 입력!
 # =========================================================================
 
 # ★ 한국 시간(KST) 설정
@@ -85,20 +86,48 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
-def get_news():
-    urls = {"사회": "NATION", "경제": "BUSINESS", "연예": "ENTERTAINMENT"}
-    msg = ""
+# [수정됨] 단순 헤드라인이 아닌 AI를 활용한 뉴스 심층 분석!
+def get_news_with_ai():
+    urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
+    raw_news = ""
     for cat, topic in urls.items():
-        msg += f"\n[{cat}]\n"
         try:
-            entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:2]
-            msg += "\n".join([f" - {e.title}" for e in entries]) + "\n"
-        except: msg += " - 오류 발생\n"
-    return msg
+            entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:1]
+            for e in entries:
+                raw_news += f"[{cat}] {e.title} (링크: {e.link})\n"
+        except: pass
+
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "여기에_발급받은_키를_넣으세요":
+        return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 GEMINI_API_KEY를 코드에 입력해주세요.)"
+
+    try:
+        # 제미나이 API에 뉴스를 던져주고 분석 요청
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        prompt = f"다음은 오늘의 주요 뉴스 헤드라인과 링크입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 요약하고, 각 뉴스의 출처 링크도 본문 옆이나 끝에 꼭 달아주세요."
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        res = requests.post(url, json=payload, timeout=20).json()
+        ai_briefing = res["candidates"][0]["content"]["parts"][0]["text"]
+        return ai_briefing
+    except Exception as e:
+        return raw_news + "\n(AI 뉴스 분석 중 오류가 발생했습니다.)"
+
+# [추가됨] 장학금/공모전 정보 스크래핑
+def get_scholarship_info():
+    msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
+    try:
+        # 최근 7일 내의 대학생 관련 장학금 및 공모전 뉴스를 검색
+        url = "https://news.google.com/rss/search?q=%EB%8C%80%ED%95%99%EC%83%9D+%EC%9E%A5%ED%95%99%EA%B8%88+OR+%EA%B3%B5%EB%AA%A8%EC%A0%84+when:7d&hl=ko&gl=KR&ceid=KR:ko"
+        entries = feedparser.parse(url).entries[:3]
+        for e in entries:
+            msg += f"💡 {e.title}\n   🔗 {e.link}\n\n"
+        return msg
+    except:
+        return msg + "정보를 불러올 수 없습니다."
 
 def send_morning_briefing():
     now = datetime.datetime.now(KST).strftime("%Y년 %m월 %d일")
-    briefing_msg = f"🌅 좋은 아침입니다! ({now})\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 주요 뉴스]{get_news()}"
+    # 영양제 알람, 날씨, 학식, AI뉴스, 장학금 순서로 조립
+    briefing_msg = f"🌅 좋은 아침입니다! ({now})\n💊 잊지 말고 영양제를 챙겨 드세요!\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 AI 딥다이브 브리핑]\n{get_news_with_ai()}{get_scholarship_info()}"
     send_telegram_message(briefing_msg)
 
 def sort_and_reindex_schedules():
@@ -146,8 +175,6 @@ def parse_and_add_schedule(command_text):
     new_id = next(s['id'] for s in schedule_list if s['title'] == title and s['alert_dt'] == alert_dt)
     send_telegram_message(f"✅ 일정 등록!\n번호: [{new_id}]\n📌 {title}\n⏰ {full_time_str}\n🔔 {('정각' if lm == 0 else f'{lm}분 전')} 알림")
 
-# =========================================================================
-# [새로 추가됨] 일정 수정 함수
 def modify_schedule(command_text):
     parts = command_text.split()
     if len(parts) < 5:
@@ -188,14 +215,13 @@ def modify_schedule(command_text):
             item['time'] = full_time_str
             item['alert_dt'] = alert_dt
             item['lead_minutes'] = lm
-            item['done'] = False  # 알림이 이미 울렸던 일정이라도 수정하면 다시 울리도록 리셋
+            item['done'] = False
             
             send_telegram_message(f"✏️ 일정 수정 완료!\n📌 새 제목: {title}\n⏰ 새 시간: {full_time_str}\n🔔 알림 세팅: {('정각' if lm == 0 else f'{lm}분 전')}")
-            sort_and_reindex_schedules()  # 수정된 시간 기준으로 줄 다시 세우고 번호 리셋!
+            sort_and_reindex_schedules() 
             return
             
     send_telegram_message(f"⚠️ [{target_id}]번 일정을 찾을 수 없습니다.")
-# =========================================================================
 
 def delete_schedule(command_text):
     parts = command_text.split()
@@ -229,7 +255,7 @@ def process_telegram_commands():
                 if chat_id_from_msg == CHAT_ID and text:
                     if text.startswith("/일정"): parse_and_add_schedule(text)
                     elif text.startswith("/삭제"): delete_schedule(text)
-                    elif text.startswith("/수정"): modify_schedule(text)  # <--- [수정 명령어 연결]
+                    elif text.startswith("/수정"): modify_schedule(text)
                     elif text == "/목록":
                         sort_and_reindex_schedules()
                         if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
