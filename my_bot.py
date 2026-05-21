@@ -14,7 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-GEMINI_API_KEY = "AIzaSyDzlW-z2Vwna1-XRAfkyBmfbGuPvCLtjHs"  # <-- 구글 AI Studio에서 발급받은 키 입력!
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # =========================================================================
 
 # ★ 한국 시간(KST) 설정
