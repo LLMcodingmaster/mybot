@@ -105,11 +105,19 @@ def get_news_with_ai():
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = f"다음은 오늘의 주요 뉴스 헤드라인과 링크입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 요약하고, 각 뉴스의 출처 링크도 본문 옆이나 끝에 꼭 달아주세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        res = requests.post(url, json=payload, timeout=20).json()
+        
+        # 여기서 구글 서버의 진짜 대답을 기다립니다.
+        response = requests.post(url, json=payload, timeout=20)
+        
+        # 구글이 200(정상)이 아닌 다른 에러를 뱉었을 때!
+        if response.status_code != 200:
+            return raw_news + f"\n(🚨 API 거절됨: {response.text})"
+            
+        res = response.json()
         ai_briefing = res["candidates"][0]["content"]["parts"][0]["text"]
         return ai_briefing
     except Exception as e:
-        return raw_news + "\n(AI 뉴스 분석 중 오류가 발생했습니다.)"
+        return raw_news + f"\n(🚨 파이썬 에러: {str(e)})"
 
 def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
