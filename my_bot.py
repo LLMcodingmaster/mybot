@@ -14,7 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+# 징글징글한 GEMINI API 키는 이제 필요 없습니다! 싹 날렸습니다.
 # =========================================================================
 
 # ★ 한국 시간(KST) 설정
@@ -86,49 +86,20 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
-def get_news_with_ai():
+# [AI 제거됨] 대신 깔끔하게 분야별 헤드라인만 빠르게 가져옵니다.
+def get_latest_news():
     urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
-    raw_news = ""
+    news_msg = ""
     for cat, topic in urls.items():
         try:
-            entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:1]
+            # 각 분야별로 상위 2개의 뉴스만 깔끔하게 가져옵니다.
+            entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:2]
+            news_msg += f"[{cat}]\n"
             for e in entries:
-                raw_news += f"[{cat}] {e.title}\n" 
+                news_msg += f"- {e.title}\n"
+            news_msg += "\n"
         except: pass
-
-    if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == "":
-        return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
-
-    try:
-        # =================================================================
-        # [궁극의 해결책] 사용 가능한 모델 자동 스캔 기능 탑재!
-        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
-        models_res = requests.get(list_url, timeout=10).json()
-        
-        # API 키로 쓸 수 있는 텍스트 요약 모델만 싹 걸러냅니다.
-        valid_models = [m['name'] for m in models_res.get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
-        
-        if not valid_models:
-            return raw_news + "\n(🚨 구글 AI: 현재 이 API 키로 사용할 수 있는 무료 모델이 없습니다.)"
-            
-        # 1순위로 'flash' 모델을 찾고, 없으면 무조건 리스트 첫 번째 모델을 강제로 씁니다.
-        target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
-        # =================================================================
-
-        url = f"https://generativelanguage.googleapis.com/v1beta/{target_model}:generateContent?key={GEMINI_API_KEY}"
-        prompt = f"다음은 오늘의 주요 뉴스 헤드라인입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 깔끔하게 요약해 주시고, 개별 뉴스 링크나 URL 출처는 절대 본문에 포함하지 마세요."
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        response = requests.post(url, json=payload, timeout=20)
-        
-        if response.status_code != 200:
-            return raw_news + f"\n(🚨 API 거절됨 ({target_model}): {response.text})"
-            
-        res = response.json()
-        ai_briefing = res["candidates"][0]["content"]["parts"][0]["text"]
-        return ai_briefing
-    except Exception as e:
-        return raw_news + f"\n(🚨 파이썬 에러: {str(e)})"
+    return news_msg.strip()
 
 def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
@@ -143,7 +114,8 @@ def get_scholarship_info():
 
 def send_morning_briefing():
     now = datetime.datetime.now(KST).strftime("%Y년 %m월 %d일")
-    briefing_msg = f"🌅 좋은 아침입니다! ({now})\n💊 잊지 말고 영양제를 챙겨 드세요!\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 AI 딥다이브 브리핑]\n{get_news_with_ai()}{get_scholarship_info()}"
+    # AI 딥다이브 대신 핵심 헤드라인 브리핑으로 변경
+    briefing_msg = f"🌅 좋은 아침입니다! ({now})\n💊 잊지 말고 영양제를 챙겨 드세요!\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 핵심 뉴스 헤드라인]\n{get_latest_news()}{get_scholarship_info()}"
     send_telegram_message(briefing_msg)
 
 def sort_and_reindex_schedules():
@@ -273,7 +245,7 @@ def process_telegram_commands():
                     elif text.startswith("/삭제"): delete_schedule(text)
                     elif text.startswith("/수정"): modify_schedule(text)
                     elif text == "/브리핑":
-                        send_telegram_message("⏳ AI가 오늘의 뉴스와 정보를 분석하고 있습니다. 잠시만 기다려주세요... (약 10~20초 소요)")
+                        send_telegram_message("⏳ 오늘의 브리핑 정보를 1초 만에 스캔 중입니다...")
                         send_morning_briefing()
                     elif text == "/목록":
                         sort_and_reindex_schedules()
