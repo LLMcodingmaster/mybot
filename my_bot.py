@@ -14,7 +14,6 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-# 렌더(Render) 금고에서 API 키를 안전하게 꺼내옵니다.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # =========================================================================
 
@@ -87,7 +86,6 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
-# [수정됨] 뉴스 수집 단계 및 AI 프롬프트에서 링크(URL)를 완전히 제외!
 def get_news_with_ai():
     urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
     raw_news = ""
@@ -95,14 +93,15 @@ def get_news_with_ai():
         try:
             entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:1]
             for e in entries:
-                raw_news += f"[{cat}] {e.title}\n"  # 링크 안 담고 제목만 쏙 가져옵니다.
+                raw_news += f"[{cat}] {e.title}\n" 
         except: pass
 
     if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == "":
         return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
 
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        # [해결 완료] 무료 요금제에서 가장 완벽하게 작동하는 순정 gemini-1.5-flash 모델로 세팅!
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = f"다음은 오늘의 주요 뉴스 헤드라인입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 깔끔하게 요약해 주시고, 개별 뉴스 링크나 URL 출처는 절대 본문에 포함하지 마세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
@@ -117,7 +116,6 @@ def get_news_with_ai():
     except Exception as e:
         return raw_news + f"\n(🚨 파이썬 에러: {str(e)})"
 
-# [유지됨] 대학생 꿀정보 쪽 링크는 그대로 살아있습니다!
 def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
     try:
