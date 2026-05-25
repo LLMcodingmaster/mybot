@@ -14,7 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-# 징글징글한 GEMINI API 키는 이제 필요 없습니다! 싹 날렸습니다.
+# 속 썩이던 구글 AI 기능은 완전히 제거되어 API 키가 필요 없습니다!
 # =========================================================================
 
 # ★ 한국 시간(KST) 설정
@@ -86,13 +86,11 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
-# [AI 제거됨] 대신 깔끔하게 분야별 헤드라인만 빠르게 가져옵니다.
 def get_latest_news():
     urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
     news_msg = ""
     for cat, topic in urls.items():
         try:
-            # 각 분야별로 상위 2개의 뉴스만 깔끔하게 가져옵니다.
             entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:2]
             news_msg += f"[{cat}]\n"
             for e in entries:
@@ -114,7 +112,6 @@ def get_scholarship_info():
 
 def send_morning_briefing():
     now = datetime.datetime.now(KST).strftime("%Y년 %m월 %d일")
-    # AI 딥다이브 대신 핵심 헤드라인 브리핑으로 변경
     briefing_msg = f"🌅 좋은 아침입니다! ({now})\n💊 잊지 말고 영양제를 챙겨 드세요!\n\n🌤️ [오늘의 서울 날씨]\n{get_weather()}{get_snu_menu()}\n\n📰 [오늘의 핵심 뉴스 헤드라인]\n{get_latest_news()}{get_scholarship_info()}"
     send_telegram_message(briefing_msg)
 
@@ -254,7 +251,8 @@ def process_telegram_commands():
     except: pass
 
 def background_loop():
-    schedule.every().day.at("23:00").do(send_morning_briefing)
+    # [자동 발송 예약 완료] 매일 아침 "08:00" 정각에 브리핑을 자동으로 발송합니다!
+    schedule.every().day.at("08:00").do(send_morning_briefing)
     while True:
         schedule.run_pending()
         process_telegram_commands()
