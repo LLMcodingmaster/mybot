@@ -100,15 +100,29 @@ def get_news_with_ai():
         return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
 
     try:
-        # [해결 완료] 무료 요금제에서 가장 완벽하게 작동하는 순정 gemini-1.5-flash 모델로 세팅!
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        # =================================================================
+        # [궁극의 해결책] 사용 가능한 모델 자동 스캔 기능 탑재!
+        list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
+        models_res = requests.get(list_url, timeout=10).json()
+        
+        # API 키로 쓸 수 있는 텍스트 요약 모델만 싹 걸러냅니다.
+        valid_models = [m['name'] for m in models_res.get('models', []) if 'generateContent' in m.get('supportedGenerationMethods', [])]
+        
+        if not valid_models:
+            return raw_news + "\n(🚨 구글 AI: 현재 이 API 키로 사용할 수 있는 무료 모델이 없습니다.)"
+            
+        # 1순위로 'flash' 모델을 찾고, 없으면 무조건 리스트 첫 번째 모델을 강제로 씁니다.
+        target_model = next((m for m in valid_models if "flash" in m), valid_models[0])
+        # =================================================================
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/{target_model}:generateContent?key={GEMINI_API_KEY}"
         prompt = f"다음은 오늘의 주요 뉴스 헤드라인입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 깔끔하게 요약해 주시고, 개별 뉴스 링크나 URL 출처는 절대 본문에 포함하지 마세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
         response = requests.post(url, json=payload, timeout=20)
         
         if response.status_code != 200:
-            return raw_news + f"\n(🚨 API 거절됨: {response.text})"
+            return raw_news + f"\n(🚨 API 거절됨 ({target_model}): {response.text})"
             
         res = response.json()
         ai_briefing = res["candidates"][0]["content"]["parts"][0]["text"]
@@ -259,42 +273,4 @@ def process_telegram_commands():
                     elif text.startswith("/삭제"): delete_schedule(text)
                     elif text.startswith("/수정"): modify_schedule(text)
                     elif text == "/브리핑":
-                        send_telegram_message("⏳ AI가 오늘의 뉴스와 정보를 분석하고 있습니다. 잠시만 기다려주세요... (약 10~20초 소요)")
-                        send_morning_briefing()
-                    elif text == "/목록":
-                        sort_and_reindex_schedules()
-                        if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
-                        else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
-    except: pass
-
-def background_loop():
-    schedule.every().day.at("23:00").do(send_morning_briefing)
-    while True:
-        schedule.run_pending()
-        process_telegram_commands()
-        
-        now = datetime.datetime.now(KST)
-        for item in schedule_list:
-            if not item['done'] and now >= item['alert_dt']:
-                msg = f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!"
-                send_telegram_message(msg)
-                item['done'] = True
-                
-        if any(item['done'] for item in schedule_list):
-            sort_and_reindex_schedules()
-            
-        time.sleep(10)
-
-if __name__ == "__main__":
-    print("🤖 클라우드 서버 세팅 완료! 가동 시작...")
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
-    try:
-        res = requests.get(url, timeout=10).json()
-        if res.get("result"):
-            last_update_id = res["result"][-1]["update_id"]
-            print(f"✅ 초기화 완료: 마지막 메시지 번호({last_update_id})부터 시작합니다.")
-    except: pass
-    
-    keep_alive() 
-    background_loop()
+                        send_telegram_message("⏳ AI가 오늘의 뉴
