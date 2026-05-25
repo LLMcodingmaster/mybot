@@ -14,7 +14,7 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-# [보안 패치 완료] 렌더(Render) 금고에서 API 키를 안전하게 꺼내옵니다.
+# 렌더(Render) 금고에서 API 키를 안전하게 꺼내옵니다.
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 # =========================================================================
 
@@ -87,6 +87,7 @@ def get_snu_menu():
         return menu_msg + f"▶ 학생회관식당\n{sm}\n\n====================\n\n▶ 예술계식당\n{am}"
     except: return menu_msg + "학식 정보를 불러오지 못했습니다."
 
+# [수정됨] 뉴스 수집 단계 및 AI 프롬프트에서 링크(URL)를 완전히 제외!
 def get_news_with_ai():
     urls = {"사회/정치": "NATION", "경제": "BUSINESS", "세계": "WORLD"}
     raw_news = ""
@@ -94,22 +95,19 @@ def get_news_with_ai():
         try:
             entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:1]
             for e in entries:
-                raw_news += f"[{cat}] {e.title} (링크: {e.link})\n"
+                raw_news += f"[{cat}] {e.title}\n"  # 링크 안 담고 제목만 쏙 가져옵니다.
         except: pass
 
-    # 환경 변수가 없거나 비어있으면 경고 문구 출력
     if not GEMINI_API_KEY or GEMINI_API_KEY.strip() == "":
         return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
 
     try:
-       url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
-        prompt = f"다음은 오늘의 주요 뉴스 헤드라인과 링크입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 요약하고, 각 뉴스의 출처 링크도 본문 옆이나 끝에 꼭 달아주세요."
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+        prompt = f"다음은 오늘의 주요 뉴스 헤드라인입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 깔끔하게 요약해 주시고, 개별 뉴스 링크나 URL 출처는 절대 본문에 포함하지 마세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
-        # 여기서 구글 서버의 진짜 대답을 기다립니다.
         response = requests.post(url, json=payload, timeout=20)
         
-        # 구글이 200(정상)이 아닌 다른 에러를 뱉었을 때!
         if response.status_code != 200:
             return raw_news + f"\n(🚨 API 거절됨: {response.text})"
             
@@ -119,6 +117,7 @@ def get_news_with_ai():
     except Exception as e:
         return raw_news + f"\n(🚨 파이썬 에러: {str(e)})"
 
+# [유지됨] 대학생 꿀정보 쪽 링크는 그대로 살아있습니다!
 def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
     try:
@@ -261,11 +260,9 @@ def process_telegram_commands():
                     if text.startswith("/일정"): parse_and_add_schedule(text)
                     elif text.startswith("/삭제"): delete_schedule(text)
                     elif text.startswith("/수정"): modify_schedule(text)
-                    # =============== [여기 추가됨!] ===============
                     elif text == "/브리핑":
                         send_telegram_message("⏳ AI가 오늘의 뉴스와 정보를 분석하고 있습니다. 잠시만 기다려주세요... (약 10~20초 소요)")
                         send_morning_briefing()
-                    # ==============================================
                     elif text == "/목록":
                         sort_and_reindex_schedules()
                         if not schedule_list: send_telegram_message("대기 중인 일정이 없습니다.")
