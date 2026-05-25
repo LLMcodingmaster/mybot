@@ -102,7 +102,7 @@ def get_news_with_ai():
         return raw_news + "\n(⚠️ 딥다이브 브리핑을 보려면 Render 환경변수에 GEMINI_API_KEY를 등록해주세요.)"
 
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}"
+       url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
         prompt = f"다음은 오늘의 주요 뉴스 헤드라인입니다:\n\n{raw_news}\n\n이 뉴스들을 바탕으로 향후 연관된 주가 전망, 경제적 파급 효과, 정치적 이슈 등을 포함한 핵심 브리핑을 작성해주세요. 글은 바쁜 아침에 읽기 좋게 핵심만 3~4문장으로 깔끔하게 요약해 주시고, 개별 뉴스 링크나 URL 출처는 절대 본문에 포함하지 마세요."
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         
