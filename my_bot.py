@@ -14,7 +14,6 @@ from threading import Thread
 # [필수 입력]
 TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
-# 속 썩이던 구글 AI 기능은 완전히 제거되어 API 키가 필요 없습니다!
 # =========================================================================
 
 # ★ 한국 시간(KST) 설정
@@ -250,9 +249,17 @@ def process_telegram_commands():
                         else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
     except: pass
 
+def check_morning_briefing():
+    # 현재 한국 시간을 불러옵니다.
+    now = datetime.datetime.now(KST)
+    # 현재 시간이 아침 8시 00분이라면 브리핑을 쏩니다!
+    if now.hour == 8 and now.minute == 0:
+        send_morning_briefing()
+
 def background_loop():
-    # [자동 발송 예약 완료] 매일 아침 "08:00" 정각에 브리핑을 자동으로 발송합니다!
-    schedule.every().day.at("08:00").do(send_morning_briefing)
+    # 이제 schedule 모듈 대신, 1분마다 직접 한국 시간을 검사합니다!
+    schedule.every().minute.at(":00").do(check_morning_briefing)
+    
     while True:
         schedule.run_pending()
         process_telegram_commands()
