@@ -249,16 +249,9 @@ def process_telegram_commands():
                         else: send_telegram_message("📅 [대기 중인 일정]\n" + "".join([f"[{s['id']}] {s['title']} ({s['time']})\n" for s in schedule_list]))
     except: pass
 
-def check_morning_briefing():
-    # 현재 한국 시간을 불러옵니다.
-    now = datetime.datetime.now(KST)
-    # 현재 시간이 아침 8시 00분이라면 브리핑을 쏩니다!
-    if now.hour == 8 and now.minute == 0:
-        send_morning_briefing()
-
 def background_loop():
-    # 이제 schedule 모듈 대신, 1분마다 직접 한국 시간을 검사합니다!
-    schedule.every().minute.at(":00").do(check_morning_briefing)
+    # [시차 꼼수 적용 완료!] 서버 시간(UTC) 밤 23:00 = 한국 시간(KST) 아침 08:00 정각
+    schedule.every().day.at("23:00").do(send_morning_briefing)
     
     while True:
         schedule.run_pending()
