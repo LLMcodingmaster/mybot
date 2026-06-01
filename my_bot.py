@@ -3,7 +3,6 @@ import time
 import datetime
 import requests
 import feedparser
-import schedule
 from bs4 import BeautifulSoup
 import re
 import os
@@ -16,11 +15,13 @@ TELEGRAM_TOKEN = "8997577286:AAHB7GROo32SNA-FapAgQXKapCndviPXGL4"
 CHAT_ID = "8212691871"
 # =========================================================================
 
-# ★ 한국 시간(KST) 설정
+# ★ 한국 시간(KST) 설정 및 사람인 척하는 브라우저 가면
 KST = datetime.timezone(datetime.timedelta(hours=9))
+USER_AGENT = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
 
 last_update_id = None
 schedule_list = []
+last_briefing_date = None  # 브리핑 폭격을 막기 위한 오늘 날짜 기억 장치
 
 # =========================================================================
 app = Flask(__name__)
@@ -48,7 +49,7 @@ def send_telegram_message(text):
 def get_weather():
     try:
         url = "https://wttr.in/Seoul?format=j1&lang=ko"
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, headers=USER_AGENT, timeout=5)
         if response.status_code == 200:
             data = response.json()
             current_temp = data['current_condition'][0]['temp_C']
@@ -70,7 +71,8 @@ def get_weather():
 def get_snu_menu():
     url, menu_msg = "https://snuco.snu.ac.kr/ko/foodmenu", "\n\n🍽️ [오늘의 학식 메뉴]\n"
     try:
-        soup = BeautifulSoup(requests.get(url, timeout=10).text, 'html.parser')
+        response = requests.get(url, headers=USER_AGENT, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
         sm, am = "정보 없음", "정보 없음"
         for tr in soup.find_all('tr'):
             cells = tr.find_all(['td', 'th'])
@@ -90,7 +92,9 @@ def get_latest_news():
     news_msg = ""
     for cat, topic in urls.items():
         try:
-            entries = feedparser.parse(f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko").entries[:2]
+            rss_url = f"https://news.google.com/rss/headlines/section/topic/{topic}?hl=ko&gl=KR&ceid=KR:ko"
+            response = requests.get(rss_url, headers=USER_AGENT, timeout=10)
+            entries = feedparser.parse(response.content).entries[:2]
             news_msg += f"[{cat}]\n"
             for e in entries:
                 news_msg += f"- {e.title}\n"
@@ -102,7 +106,8 @@ def get_scholarship_info():
     msg = "\n\n🎓 [대학생 장학금 & 공모전 정보]\n"
     try:
         url = "https://news.google.com/rss/search?q=%EB%8C%80%ED%95%99%EC%83%9D+%EC%9E%A5%ED%95%99%EA%B8%88+OR+%EA%B3%B5%EB%AA%A8%EC%A0%84+when:7d&hl=ko&gl=KR&ceid=KR:ko"
-        entries = feedparser.parse(url).entries[:3]
+        response = requests.get(url, headers=USER_AGENT, timeout=10)
+        entries = feedparser.parse(response.content).entries[:3]
         for e in entries:
             msg += f"💡 {e.title}\n   🔗 {e.link}\n\n"
         return msg
@@ -159,54 +164,6 @@ def parse_and_add_schedule(command_text):
     new_id = next(s['id'] for s in schedule_list if s['title'] == title and s['alert_dt'] == alert_dt)
     send_telegram_message(f"✅ 일정 등록!\n번호: [{new_id}]\n📌 {title}\n⏰ {full_time_str}\n🔔 {('정각' if lm == 0 else f'{lm}분 전')} 알림")
 
-def modify_schedule(command_text):
-    parts = command_text.split()
-    if len(parts) < 5:
-        send_telegram_message("⚠️ 형식: /수정 [번호] [새제목] [새월일4자리] [새시간4자리] [몇분전(선택)]")
-        return
-
-    if not parts[1].isdigit():
-        send_telegram_message("⚠️ 올바른 번호를 입력해주세요. (예: /수정 1 새제목 0620 1300)")
-        return
-
-    target_id = int(parts[1])
-    title, date_str, time_str = parts[2], parts[3], parts[4]
-    now = datetime.datetime.now(KST)
-    
-    if len(date_str) == 4 and date_str.isdigit() and len(time_str) == 4 and time_str.isdigit():
-        month, day = int(date_str[:2]), int(date_str[2:])
-        hour, minute = int(time_str[:2]), int(time_str[2:])
-    else:
-        send_telegram_message("⚠️ 날짜와 시간은 4자리 숫자로 적어주세요. (예: 0520 1430)")
-        return
-
-    try: dt = datetime.datetime(now.year, month, day, hour, minute, tzinfo=KST)
-    except ValueError:
-        send_telegram_message("⚠️ 잘못된 날짜나 시간입니다.")
-        return
-
-    lm = 0
-    if len(parts) >= 6:
-        digits = re.sub(r'[^0-9]', '', parts[5])
-        if digits: lm = int(digits) * (60 if "시간" in parts[5] else 1)
-
-    alert_dt = dt - datetime.timedelta(minutes=lm)
-    full_time_str = dt.strftime("%Y-%m-%d %H:%M")
-    
-    for item in schedule_list:
-        if item['id'] == target_id:
-            item['title'] = title
-            item['time'] = full_time_str
-            item['alert_dt'] = alert_dt
-            item['lead_minutes'] = lm
-            item['done'] = False
-            
-            send_telegram_message(f"✏️ 일정 수정 완료!\n📌 새 제목: {title}\n⏰ 새 시간: {full_time_str}\n🔔 알림 세팅: {('정각' if lm == 0 else f'{lm}분 전')}")
-            sort_and_reindex_schedules() 
-            return
-            
-    send_telegram_message(f"⚠️ [{target_id}]번 일정을 찾을 수 없습니다.")
-
 def delete_schedule(command_text):
     parts = command_text.split()
     if len(parts) < 2 or not parts[1].isdigit():
@@ -239,7 +196,6 @@ def process_telegram_commands():
                 if chat_id_from_msg == CHAT_ID and text:
                     if text.startswith("/일정"): parse_and_add_schedule(text)
                     elif text.startswith("/삭제"): delete_schedule(text)
-                    elif text.startswith("/수정"): modify_schedule(text)
                     elif text == "/브리핑":
                         send_telegram_message("⏳ 오늘의 브리핑 정보를 1초 만에 스캔 중입니다...")
                         send_morning_briefing()
@@ -250,14 +206,22 @@ def process_telegram_commands():
     except: pass
 
 def background_loop():
-    # [시차 꼼수 적용 완료!] 서버 시간(UTC) 밤 23:00 = 한국 시간(KST) 아침 08:00 정각
-    schedule.every().day.at("23:00").do(send_morning_briefing)
+    global last_briefing_date
     
     while True:
-        schedule.run_pending()
         process_telegram_commands()
         
+        # 1. 완벽한 시간 계산 (무조건 한국 KST 기준)
         now = datetime.datetime.now(KST)
+        today_str = now.strftime("%Y-%m-%d")
+        
+        # 2. 브리핑 중복 발송 방지 자물쇠 적용!
+        if now.hour == 8 and now.minute == 0:
+            if last_briefing_date != today_str:
+                send_morning_briefing()
+                last_briefing_date = today_str # "나 오늘 쐈다!" 하고 기억함
+                
+        # 3. 개인 일정 알림 처리
         for item in schedule_list:
             if not item['done'] and now >= item['alert_dt']:
                 msg = f"⏰ [일정 알림]\n지금은 '{item['title']}' 할 시간입니다!" if item['lead_minutes'] == 0 else f"⏰ [미리 알림]\n{item['lead_minutes']}분 뒤에 '{item['title']}' 일정이 있습니다!"
@@ -277,7 +241,6 @@ if __name__ == "__main__":
         res = requests.get(url, timeout=10).json()
         if res.get("result"):
             last_update_id = res["result"][-1]["update_id"]
-            print(f"✅ 초기화 완료: 마지막 메시지 번호({last_update_id})부터 시작합니다.")
     except: pass
     
     keep_alive() 
